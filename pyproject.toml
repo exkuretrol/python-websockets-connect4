@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "connect4"
+version = "0.1.0"
+description = ""
+authors = ["exkuretrol <33695301+exkuretrol@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+websockets = "^11.0.3"
+asyncio = "^3.4.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
