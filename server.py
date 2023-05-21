@@ -1,10 +1,12 @@
 import asyncio
 import logging
-import websockets
-from websockets.server import WebSocketServerProtocol, WebSocketServer
+from websockets.server import WebSocketServerProtocol, WebSocketServer, serve
+from websockets.legacy.protocol import broadcast
 import secrets
 import json
+import signal
 from Connect4.connect4 import PLAYER1, PLAYER2, Connect4
+import http
 
 logging.basicConfig(format="%(message)s", level=logging.DEBUG)
 
@@ -20,7 +22,7 @@ async def error(websocket: WebSocketServerProtocol, message: str):
     await websocket.send(json.dumps(event))
 
 
-async def replay(websocket, game: Connect4):
+async def replay(websocket: WebSocketServerProtocol, game: Connect4):
     for player, column, row in game.moves.copy():
         event = {
             "type": "play",
@@ -32,7 +34,7 @@ async def replay(websocket, game: Connect4):
         await websocket.send(json.dumps(event))
 
 
-async def play(websocket, game: Connect4, player, connected):
+async def play(websocket: WebSocketServerProtocol, game: Connect4, player, connected):
     async for message in websocket:
         # print("first player sent ", message)
         event = json.loads(message)
@@ -52,17 +54,17 @@ async def play(websocket, game: Connect4, player, connected):
             "row": row
         }
 
-        websockets.broadcast(connected, json.dumps(event))
+        broadcast(connected, json.dumps(event))
 
         if game.winner is not None:
             event = {
                 "type": "win",
                 "player": game.winner,
             }
-            websockets.broadcast(connected, json.dumps(event))
+            broadcast(connected, json.dumps(event))
 
 
-async def start(websocket):
+async def start(websocket: WebSocketServerProtocol):
     game = Connect4()
     connected = {websocket}
     join_key = secrets.token_urlsafe(10)
@@ -89,7 +91,7 @@ async def start(websocket):
         del WATCH[watch_key]
 
 
-async def join(websocket, join_key):
+async def join(websocket: WebSocketServerProtocol, join_key: str):
     try:
         game, connected = JOIN[join_key]
     except KeyError:
@@ -104,7 +106,7 @@ async def join(websocket, join_key):
         connected.remove(websocket)
 
 
-async def watch(websocket, watch_key):
+async def watch(websocket: WebSocketServerProtocol, watch_key):
     try:
         game, connected = WATCH[watch_key]
     except KeyError:
@@ -119,7 +121,7 @@ async def watch(websocket, watch_key):
         connected.remove(websocket)
 
 
-async def handler(websocket):
+async def handler(websocket: WebSocketServerProtocol):
     message = await websocket.recv()
     event = json.loads(message)
     assert event['type'] == "init"
@@ -131,10 +133,22 @@ async def handler(websocket):
     else:
         await start(websocket)
 
+async def health_check(path, request_headers):
+    if path == '/healthz':
+        return http.HTTPStatus.OK, [], b"OK\n"
 
 async def main():
-    async with websockets.serve(handler, 'localhost', 8001):
-        await asyncio.Future()
+    loop = asyncio.get_running_loop()
+    stop = loop.create_future()
+    loop.add_signal_handler(signal.SIGTERM, stop.set_result, None)
+
+    async with serve(
+        handler, 
+        host='localhost', 
+        port=8001,
+        process_request=health_check
+    ):
+        await stop
 
 if __name__ == "__main__":
     asyncio.run(main())
